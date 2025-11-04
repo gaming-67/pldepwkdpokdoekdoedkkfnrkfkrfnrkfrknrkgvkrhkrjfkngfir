@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2D Puzzle Platformer</title>
+<style>
+  html,body { margin:0; height:100%; background:#101820; display:flex; align-items:center; justify-content:center; font-family:sans-serif; color:white; }
+  canvas { background:#172030; width:100%; height:100%; display:block; border-radius:8px; }
+  #ui { position:absolute; top:10px; left:10px; display:flex; gap:10px; }
+  button { background:#222; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; }
+  #msg { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; background:rgba(0,0,0,0.7); padding:20px; border-radius:8px; display:none; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <button id="restartBtn">Restart</button>
+</div>
+<canvas id="game" width="960" height="540"></canvas>
+<div id="msg"><h2 id="msgTitle"></h2><p id="msgText"></p></div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const msgBox=document.getElementById("msg");
+const msgTitle=document.getElementById("msgTitle");
+const msgText=document.getElementById("msgText");
+
+const TILE=48;
+const GRAVITY=1500;
+const JUMP=-520;
+const SPEED=240;
+let keys={};
+
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+document.getElementById("restartBtn").onclick=()=>loadLevel(levelIndex);
+
+function showMessage(title,text,time=1000){
+  msgTitle.textContent=title;
+  msgText.textContent=text;
+  msgBox.style.display="block";
+  setTimeout(()=>msgBox.style.display="none",time);
+}
+
+// TILE LEGEND
+// 1=solid, 2=spawn, 3=star, 4=box, 5=door, 6=switch, 0=empty
+
+const levels=[
+{
+name:"Tutorial",
+map:[
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,1],
+[1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,4,0,0,0,0,0,0,0,0,0,6,0,0,0,1],
+[1,0,0,0,0,1,1,1,1,1,0,0,0,0,5,5,5,0,0,1],
+[1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,1,0,3,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+]
+},
+{
+name:"Two Switches",
+map:[
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,2,0,0,0,3,0,0,0,4,0,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,1,1,1,0,0,0,0,0,0,6,0,0,0,1],
+[1,0,0,0,0,0,0,0,1,0,0,5,5,5,0,6,0,0,0,1],
+[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,3,0,1],
+[1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1],
+]
+},
+{
+name:"Final Challenge",
+map:[
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,2,0,0,0,0,0,4,0,0,0,0,0,0,0,0,3,0,1],
+[1,0,0,0,0,1,1,1,1,1,1,0,0,0,0,6,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,5,5,5,0,0,0,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
+[1,0,0,3,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+]
+}
+];
+
+let levelIndex=0;
+let map=[],player,boxes,stars,switches,doors;
+
+function loadLevel(i){
+  const L=levels[i];
+  map=L.map.map(r=>r.slice());
+  boxes=[];stars=[];switches=[];doors=[];
+  for(let y=0;y<map.length;y++){
+    for(let x=0;x<map[y].length;x++){
+      const t=map[y][x];
+      if(t===2){player={x:x*TILE,y:y*TILE-10,vx:0,vy:0,onGround:false};map[y][x]=0;}
+      if(t===3){stars.push({x:x*TILE+TILE/2,y:y*TILE+TILE/2,taken:false});map[y][x]=0;}
+      if(t===4){boxes.push({x:x*TILE,y:y*TILE,w:TILE,h:TILE,vy:0});map[y][x]=0;}
+      if(t===5){doors.push({x:x*TILE,y:y*TILE,open:false});map[y][x]=0;}
+      if(t===6){switches.push({x,y,active:false});map[y][x]=0;}
+    }
+  }
+  showMessage(L.name,"Collect all stars and reach the door!",800);
+}
+
+function solidAt(x,y){
+  if(y<0||y>=map.length||x<0||x>=map[0].length) return true;
+  return map[y][x]===1;
+}
+
+function rectsOverlap(a,b){return a.x<a.w+b.x&&a.x+a.w>b.x&&a.y+a.h>b.y&&a.y<b.y+b.h;}
+
+function update(dt){
+  const p=player;
+  // movement
+  if(keys["ArrowLeft"]||keys["a"])p.vx=-SPEED;
+  else if(keys["ArrowRight"]||keys["d"])p.vx=SPEED;
+  else p.vx=0;
+
+  if((keys["ArrowUp"]||keys["w"]||keys[" "])&&p.onGround){p.vy=JUMP;p.onGround=false;}
+
+  p.vy+=GRAVITY*dt;
+  let nx=p.x+p.vx*dt,ny=p.y+p.vy*dt;
+  let pw=TILE*0.7,ph=TILE*0.9;
+  // horizontal collision
+  if(p.vx>0&&solidAt(Math.floor((nx+pw)/TILE),Math.floor(p.y/TILE))||solidAt(Math.floor((nx+pw)/TILE),Math.floor((p.y+ph-1)/TILE))){nx=Math.floor((nx+pw)/TILE)*TILE-pw-0.1;p.vx=0;}
+  if(p.vx<0&&solidAt(Math.floor(nx/TILE),Math.floor(p.y/TILE))||solidAt(Math.floor(nx/TILE),Math.floor((p.y+ph-1)/TILE))){nx=(Math.floor(nx/TILE)+1)*TILE+0.1;p.vx=0;}
+  p.x=nx;
+  // vertical collision
+  p.onGround=false;
+  if(p.vy>0){
+    if(solidAt(Math.floor(p.x/TILE),Math.floor((ny+ph)/TILE))||solidAt(Math.floor((p.x+pw)/TILE),Math.floor((ny+ph)/TILE))){
+      ny=Math.floor((ny+ph)/TILE)*TILE-ph-0.1;p.vy=0;p.onGround=true;
+    }
+  }
+  if(p.vy<0){
+    if(solidAt(Math.floor(p.x/TILE),Math.floor(ny/TILE))||solidAt(Math.floor((p.x+pw)/TILE),Math.floor(ny/TILE))){
+      ny=(Math.floor(ny/TILE)+1)*TILE+0.1;p.vy=0;
+    }
+  }
+  p.y=ny;
+
+  // boxes gravity
+  for(const b of boxes){
+    b.vy+=GRAVITY*dt;
+    b.y+=b.vy*dt;
+    if(solidAt(Math.floor(b.x/TILE),Math.floor((b.y+b.h)/TILE))||solidAt(Math.floor((b.x+b.w-1)/TILE),Math.floor((b.y+b.h)/TILE))){
+      b.y=Math.floor((b.y+b.h)/TILE)*TILE-b.h;b.vy=0;
+    }
+    // pushable by player
+    const pr={x:p.x,y:p.y,w:pw,h:ph};
+    const br={x:b.x,y:b.y,w:b.w,h:b.h};
+    if(rectsOverlap(pr,br)){
+      if(p.vx>0){p.x=b.x-pw-1;b.x+=2;}
+      if(p.vx<0){p.x=b.x+b.w+1;b.x-=2;}
+    }
+  }
+
+  // stars
+  for(const s of stars) if(!s.taken){
+    const dx=s.x-(p.x+pw/2),dy=s.y-(p.y+ph/2);
+    if(Math.abs(dx)<20&&Math.abs(dy)<20)s.taken=true;
+  }
+
+  // switches
+  for(const sw of switches){
+    const sx=sw.x*TILE,sy=sw.y*TILE;
+    sw.active=false;
+    const area={x:sx,y:sy,w:TILE,h:TILE};
+    if(rectsOverlap({x:p.x,y:p.y,w:pw,h:ph},area))sw.active=true;
+    for(const b of boxes) if(rectsOverlap(b,area))sw.active=true;
+  }
+
+  // doors
+  let allStars=stars.every(s=>s.taken);
+  let anySwitch=switches.some(sw=>sw.active);
+  for(const d of doors)d.open=anySwitch;
+
+  for(const d of doors){
+    const dr={x:d.x,y:d.y,w:TILE,h:TILE};
+    if(d.open&&allStars&&rectsOverlap({x:p.x,y:p.y,w:pw,h:ph},dr)){
+      showMessage("Level Complete!",levels[levelIndex].name+" cleared!");
+      levelIndex++;
+      if(levelIndex>=levels.length){
+        setTimeout(()=>showMessage("You Win!","All levels complete!",2000),500);
+      }else setTimeout(()=>loadLevel(levelIndex),700);
+    }
+  }
+
+  if(p.y>canvas.height){showMessage("You fell!","Restarting...");setTimeout(()=>loadLevel(levelIndex),700);}
+}
+
+function draw(){
+  ctx.fillStyle="#101820";ctx.fillRect(0,0,canvas.width,canvas.height);
+  // draw tiles
+  for(let y=0;y<map.length;y++){
+    for(let x=0;x<map[y].length;x++){
+      if(map[y][x]===1){ctx.fillStyle="#2c3e50";ctx.fillRect(x*TILE,y*TILE,TILE,TILE);}
+    }
+  }
+  for(const s of stars){if(!s.taken){ctx.fillStyle="#f1c40f";ctx.beginPath();ctx.arc(s.x,s.y,8,0,Math.PI*2);ctx.fill();}}
+  for(const b of boxes){ctx.fillStyle="#b5651d";ctx.fillRect(b.x,b.y,b.w,b.h);}
+  for(const sw of switches){ctx.fillStyle=sw.active?"#27ae60":"#555";ctx.fillRect(sw.x*TILE+8,sw.y*TILE+8,TILE-16,TILE-16);}
+  for(const d of doors){ctx.fillStyle=d.open?"#2ecc71":"#8e44ad";ctx.fillRect(d.x,d.y,TILE,TILE);}
+  ctx.fillStyle="#3498db";ctx.fillRect(player.x,player.y,TILE*0.7,TILE*0.9);
+}
+
+let last=0;
+function loop(ts){
+  let dt=(ts-last)/1000; if(dt>0.05)dt=0.05; last=ts;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+
+loadLevel(levelIndex);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
