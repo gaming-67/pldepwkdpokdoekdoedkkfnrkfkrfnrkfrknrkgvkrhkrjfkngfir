@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Polished Puzzle Platformer</title>
+<style>
+  :root{
+    --bg1:#071428; --bg2:#0b2a40; --accent:#ffd166; --muted:#9fb3c8;
+    --card: rgba(255,255,255,0.04); --glass: rgba(255,255,255,0.03);
+  }
+  html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;color:#e6f2ff;background:linear-gradient(180deg,var(--bg1),var(--bg2));-webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;}
+  #wrap{width:980px; max-width:96vw; aspect-ratio:16/9; position:relative; border-radius:14px; overflow:hidden; box-shadow: 0 20px 60px rgba(2,6,23,0.7); background:transparent;}
+  canvas{display:block;width:100%;height:100%; background:transparent;}
+  /* Overlay UI */
+  .uiTop{position:absolute;left:18px;top:18px;display:flex;gap:10px;align-items:center;z-index:40;}
+  .btn{background:var(--card);border:1px solid rgba(255,255,255,0.04);color:var(--accent);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600;backdrop-filter:blur(6px);box-shadow:0 6px 18px rgba(2,6,23,0.4);}
+  .btn.secondary{background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.03);}
+  .title{font-weight:800;font-size:18px;color:var(--accent);letter-spacing:0.6px;}
+  .uiTop .levelLabel{color:#dff4ff;font-weight:600;padding:6px 10px;border-radius:8px;background:var(--glass);border:1px solid rgba(255,255,255,0.02);}
+  /* center menu */
+  #menu{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:50;display:flex;flex-direction:column;gap:12px;align-items:center;}
+  .menuCard{width:420px;max-width:92vw;padding:18px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.02));border:1px solid rgba(255,255,255,0.04);box-shadow:0 10px 30px rgba(2,6,23,0.4);text-align:center;}
+  .menuTitle{font-size:24px;font-weight:900;color:var(--accent);margin:6px 0;}
+  .menuBtns{display:flex;gap:10px;justify-content:center;margin-top:8px;}
+  .faded{color:var(--muted);font-size:14px;}
+  /* level select */
+  #levelSelect{position:absolute;inset:0;display:none;padding:26px;box-sizing:border-box;z-index:60;}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start;}
+  .levelCard{background:var(--card);padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;display:flex;flex-direction:column;gap:8px;align-items:stretch;transition:transform .18s ease, box-shadow .18s;}
+  .levelCard:hover{transform:translateY(-6px);box-shadow:0 14px 30px rgba(0,0,0,0.6);}
+  .thumb{height:96px;border-radius:6px;background:linear-gradient(180deg,#08334b,#07202a);display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.06);font-weight:700;}
+  .levelName{font-weight:700;color:#e6f7ff;}
+  .levelMeta{color:var(--muted);font-size:13px;}
+  /* bottom credits */
+  .credits{position:absolute;left:18px;bottom:12px;color:rgba(255,255,255,0.35);font-size:13px;z-index:40;}
+  /* toast */
+  #toast{position:absolute;right:18px;top:18px;z-index:80;}
+  .toastMsg{background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:8px;color:#dff6ff;border:1px solid rgba(255,255,255,0.04);box-shadow:0 8px 20px rgba(0,0,0,0.6);transform:translateY(-8px);opacity:0;transition:opacity .24s, transform .24s;}
+  .toastMsg.show{opacity:1;transform:translateY(0);}
+  /* small responsive */
+  @media (max-width:720px){
+    .grid{grid-template-columns:repeat(2,1fr);}
+    .menuCard{width:88vw;}
+  }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game"></canvas>
+
+    <div class="uiTop">
+      <div class="title">Puzzle Platformer</div>
+      <div class="levelLabel" id="hudLevel">Level 1</div>
+      <button class="btn secondary" id="btnMenu">Menu</button>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="menu" aria-hidden="false">
+      <div class="menuCard">
+        <div class="menuTitle">Puzzle Platformer</div>
+        <div class="faded">Collect stars, push boxes, hit switches — reach the glowing exit.</div>
+        <div class="menuBtns" style="margin-top:12px;">
+          <button class="btn" id="btnPlay">Play</button>
+          <button class="btn secondary" id="btnLevelSelect">Levels</button>
+          <button class="btn secondary" id="btnSettings">Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Level Select overlay -->
+    <div id="levelSelect" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="color:var(--accent);font-weight:800;font-size:18px;">Select Level</div>
+        <div><button class="btn secondary" id="btnLevelBack">Back</button></div>
+      </div>
+      <div class="grid" id="levelGrid"></div>
+    </div>
+
+    <div class="credits">Made with ♥ — single file. Press ← → ↑ to play. Mobile controls supported.</div>
+
+    <div id="toast"></div>
+  </div>
+
+<script>
+/* === Polished Puzzle Platformer — single file ===
+   - Main menu / level select
+   - Improved visuals (parallax, HUD)
+   - 6 beatable levels (editable below)
+   - Small WebAudio SFX (jump, collect, win)
+*/
+
+/* ---------- Setup canvas & resize ---------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: true });
+
+function resize(){
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = Math.floor(rect.width * devicePixelRatio);
+  canvas.height = Math.floor(rect.height * devicePixelRatio);
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- Input ---------- */
+const input = { left:false, right:false, up:false };
+window.addEventListener('keydown',e=>{
+  if(e.key==='ArrowLeft'||e.key==='a')input.left=true;
+  if(e.key==='ArrowRight'||e.key==='d')input.right=true;
+  if(e.key==='ArrowUp'||e.key==='w'||e.key===' ')input.up=true;
+});
+window.addEventListener('keyup',e=>{
+  if(e.key==='ArrowLeft'||e.key==='a')input.left=false;
+  if(e.key==='ArrowRight'||e.key==='d')input.right=false;
+  if(e.key==='ArrowUp'||e.key==='w'||e.key===' ')input.up=false;
+});
+
+/* ---------- Audio (small SFX using WebAudio) ---------- */
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new AudioCtx();
+}
+function sfxBeep(freq, type='sine', dur=0.12, gain=0.07){
+  try{
+    ensureAudio();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = gain;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    setTimeout(()=>o.stop(), dur*1000 + 20);
+  }catch(e){}
+}
+function sfxCollect(){ sfxBeep(880,'triangle',0.08,0.08); }
+function sfxJump(){ sfxBeep(300,'sine',0.12,0.06); }
+function sfxWin(){ sfxBeep(560,'sine',0.2,0.12); sfxBeep(760,'triangle',0.18,0.08); }
+
+/* ---------- Game constants & levels ---------- */
+const TILE = 48;
+const GRAV = 1400;
+const JUMP = -520;
+const MOVE_SPEED = 220;
+
+const rawLevels = [
+  // Level editor notes: 1=wall,2=spawn,3=star,4=box,5=door,6=switch,7=one-way
+  { name:'Tutorial', map:[
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,4,0,0,0,0,0,0,0,0,0,6,0,0,0,1],
+    [1,0,0,0,0,1,1,1,1,1,0,0,0,0,5,5,5,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,0,3,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ] },
+
+  { name:'Two Switches', map:[
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,2,0,0,0,3,0,0,0,4,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,1,1,1,0,0,0,0,0,0,6,0,0,0,1],
+    [1,0,0,0,0,0,0,0,1,0,0,5,5,5,0,6,0,0,0,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,3,0,1],
+    [1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1],
+  ] },
+
+  { name:'Final Challenge', map:[
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,4,0,0,0,0,0,0,0,0,3,0,1],
+    [1,0,0,0,0,1,1,1,1,1,1,0,0,0,0,6,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,5,5,5,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
+    [1,0,0,3,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ] },
+
+  /* Extra two levels added and refined */
+  { name:'Bridge & Push', map:[
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,3,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,0,0,0,0,5,5,5,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,0,0,3,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ]},
+
+  { name:'Staircase', map:[
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,3,0,0,0,0,0,3,0,0,0,0,0,3,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,0,0,4,0,0,0,0,0,0,6,0,1],
+    [1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,5,5,5,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,1,0,0,3,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  ]},
+];
+
+/* ---------- Game state ---------- */
+let levelIndex = 0;
+let L = null;
+let state = null;
+
+function resetStateForLevel(lvl){
+  const map = lvl.map.map(r=>r.slice());
+  const s = {
+    map,
+    cols: map[0].length,
+    rows: map.length,
+    player: { x:0,y:0,w:34,h:42,vx:0,vy:0,onGround:false, facing:1 },
+    boxes: [],
+    stars: [],
+    switches: [],
+    doors: [],
+    particles: []
+  };
+  for(let y=0;y<map.length;y++){
+    for(let x=0;x<map[y].length;x++){
+      const t = map[y][x];
+      if(t===2){ s.player.x = x*TILE + (TILE-s.player.w)/2; s.player.y = y*TILE + (TILE-s.player.h); map[y][x]=0; }
+      if(t===4){ s.boxes.push({ x:x*TILE, y:y*TILE, w:TILE, h:TILE, vy:0 }); map[y][x]=0; }
+      if(t===3){ s.stars.push({ x:x*TILE+TILE/2, y:y*TILE+TILE/2, taken:false }); map[y][x]=0; }
+      if(t===6){ s.switches.push({ x:x, y:y, active:false }); map[y][x]=0; }
+      if(t===5){ s.doors.push({ x:x, y:y, open:false }); map[y][x]=0; }
+    }
+  }
+  return s;
+}
+
+/* ---------- UI: Menu & Level Select ---------- */
+const menu = document.getElementById('menu');
+const levelSelect = document.getElementById('levelSelect');
+const levelGrid = document.getElementById('levelGrid');
+const hudLevel = document.getElementById('hudLevel');
+const toast = document.getElementById('toast');
+
+function showToast(text, time=1200){
+  const el = document.createElement('div');
+  el.className='toastMsg';
+  el.textContent = text;
+  toast.appendChild(el);
+  requestAnimationFrame(()=>el.classList.add('show'));
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),240); }, time);
+}
+
+/* populate level select */
+function buildLevelSelect(){
+  levelGrid.innerHTML = '';
+  rawLevels.forEach((lv,i)=>{
+    const card = document.createElement('div'); card.className='levelCard';
+    const thumb = document.createElement('div'); thumb.className='thumb';
+    thumb.textContent = `Level ${i+1}`;
+    const name = document.createElement('div'); name.className='levelName'; name.textContent = lv.name;
+    const meta = document.createElement('div'); meta.className='levelMeta'; meta.textContent = `Beatable puzzle — ${lv.map.length} rows`;
+    const btnRow = document.createElement('div'); btnRow.style.display='flex'; btnRow.style.justifyContent='space-between';
+    const play = document.createElement('button'); play.className='btn'; play.textContent='Play'; play.onclick = ()=>{ openLevel(i); };
+    const info = document.createElement('button'); info.className='btn secondary'; info.textContent='Info'; info.onclick=()=> showToast(`Level ${i+1}: ${lv.name}`,1200);
+    btnRow.appendChild(play); btnRow.appendChild(info);
+    card.appendChild(thumb); card.appendChild(name); card.appendChild(meta); card.appendChild(btnRow);
+    levelGrid.appendChild(card);
+  });
+}
+buildLevelSelect();
+
+/* menu buttons */
+document.getElementById('btnPlay').addEventListener('click', ()=>{
+  menu.style.display='none';
+  startLevel(0);
+});
+document.getElementById('btnLevelSelect').addEventListener('click', ()=>{
+  levelSelect.style.display='block';
+  menu.style.display='none';
+});
+document.getElementById('btnLevelBack').addEventListener('click', ()=>{
+  levelSelect.style.display='none';
+  menu.style.display='block';
+});
+document.getElementById('btnMenu').addEventListener('click', ()=>{
+  // show menu overlay
+  levelSelect.style.display='none';
+  menu.style.display = (menu.style.display==='none' || menu.style.display==='') ? 'flex' : 'none';
+});
+
+/* open a level and begin playing */
+function openLevel(i){
+  levelIndex = i;
+  startLevel(i);
+}
+
+/* start / load */
+function startLevel(i){
+  L = rawLevels[i];
+  state = resetStateForLevel(L);
+  hudLevel.textContent = `Level ${i+1}: ${L.name}`;
+  menu.style.display='none';
+  levelSelect.style.display='none';
+  showToast(`Loaded: ${L.name}`,900);
+  // warm audio context on user gesture (best-effort)
+  try{ if(!audioCtx) { window.addEventListener('pointerdown', ()=>{ ensureAudio(); }, { once:true }); } }catch(e){}
+}
+
+/* restart current */
+function restartLevel(){
+  startLevel(levelIndex);
+  showToast('Restarted',700);
+}
+
+/* ---------- Core physics helpers ---------- */
+function tileAt(tx, ty){
+  if(!state) return 1;
+  if(tx<0||ty<0||ty>=state.rows||tx>=state.cols) return 1;
+  // if original rawLevels cell had wall
+  return rawLevels[levelIndex].map[ty][tx] === 1 ? 1 : 0;
+}
+function rectsOverlap(a,b){
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/* ---------- Update / Game loop ---------- */
+let last = performance.now();
+function update(dt){
+  if(!state) return;
+
+  const p = state.player;
+  // horizontal
+  let dir = 0;
+  if(input.left) dir -= 1;
+  if(input.right) dir += 1;
+  p.vx = dir * MOVE_SPEED;
+
+  // jump
+  if(input.up && p.onGround){
+    p.vy = JUMP;
+    p.onGround = false;
+    sfxJump();
+  }
+
+  // gravity
+  p.vy += GRAV * dt;
+  // integrate
+  let nx = p.x + p.vx * dt;
+  let ny = p.y + p.vy * dt;
+
+  // collision AABB vs tiles
+  const pw = p.w, ph = p.h;
+
+  // horizontal collisions
+  if(p.vx>0){
+    const right = Math.floor((nx + pw) / TILE);
+    const top = Math.floor(p.y / TILE);
+    const bottom = Math.floor((p.y + ph - 1) / TILE);
+    for(let ty=top; ty<=bottom; ty++){
+      if(tileAt(right, ty) === 1){
+        nx = right * TILE - pw - 0.01;
+        p.vx = 0;
+      }
+    }
+  } else if(p.vx < 0){
+    const left = Math.floor(nx / TILE);
+    const top = Math.floor(p.y / TILE);
+    const bottom = Math.floor((p.y + ph -1)/TILE);
+    for(let ty=top; ty<=bottom; ty++){
+      if(tileAt(left, ty)===1){
+        nx = (left+1)*TILE + 0.01;
+        p.vx = 0;
+      }
+    }
+  }
+  p.x = nx;
+
+  // vertical collisions
+  p.onGround = false;
+  if(p.vy > 0){
+    const foot = Math.floor((ny + ph) / TILE);
+    const left = Math.floor(p.x / TILE);
+    const right = Math.floor((p.x + pw - 1) / TILE);
+    for(let tx=left; tx<=right; tx++){
+      if(tileAt(tx, foot) === 1){
+        ny = foot * TILE - ph - 0.01;
+        p.vy = 0;
+        p.onGround = true;
+      }
+    }
+  } else if(p.vy < 0){
+    const head = Math.floor(ny / TILE);
+    const left = Math.floor(p.x / TILE);
+    const right = Math.floor((p.x + pw - 1) / TILE);
+    for(let tx=left; tx<=right; tx++){
+      if(tileAt(tx, head) === 1){
+        ny = (head+1) * TILE + 0.01;
+        p.vy = 0;
+      }
+    }
+  }
+  p.y = ny;
+
+  // boxes physics (simple gravity + collisions + push)
+  for(const b of state.boxes){
+    b.vy += GRAV * dt;
+    b.y += b.vy * dt;
+    // collide with tiles below
+    const bottom = Math.floor((b.y + b.h) / TILE);
+    const left = Math.floor(b.x / TILE);
+    const right = Math.floor((b.x + b.w - 1)/TILE);
+    for(let tx=left; tx<=right; tx++){
+      if(tileAt(tx, bottom) === 1){
+        b.y = bottom * TILE - b.h - 0.01;
+        b.vy = 0;
+      }
+    }
+    // push by player
+    const pr = {x: state.player.x, y: state.player.y, w: state.player.w, h: state.player.h};
+    if(rectsOverlap(pr, b)){
+      if(state.player.vx > 0){ b.x += 2; }
+      else if(state.player.vx < 0){ b.x -= 2; }
+      // simple separation
+      if(rectsOverlap(pr,b)){
+        if(state.player.x + state.player.w/2 < b.x + b.w/2) state.player.x = b.x - state.player.w - 0.1;
+        else state.player.x = b.x + b.w + 0.1;
+      }
+    }
+  }
+
+  // stars pickup
+  for(const s of state.stars){
+    if(!s.taken && Math.hypot((s.x - (p.x + p.w/2)), (s.y - (p.y + p.h/2))) < 22){
+      s.taken = true; sfxCollect(); spawnParticles(s.x, s.y, 10, '#ffd166');
+    }
+  }
+
+  // switches activation
+  for(const sw of state.switches){
+    sw.active = false;
+    const area = { x: sw.x*TILE, y: sw.y*TILE, w: TILE, h: TILE };
+    if(rectsOverlap(area, { x: p.x, y: p.y, w: p.w, h: p.h })) sw.active = true;
+    for(const b of state.boxes) if(rectsOverlap(area, b)) sw.active = true;
+  }
+
+  // door logic: door opens if ALL stars collected OR any switch active (per-level behavior)
+  const allStars = state.stars.length === 0 ? true : state.stars.every(s => s.taken);
+  const anySwitch = state.switches.some(s => s.active);
+  for(const d of state.doors){
+    d.open = allStars || anySwitch;
+    if(d.open){
+      // collect if touching with allStars true
+      const dr = { x: d.x*TILE, y: d.y*TILE, w: TILE, h: TILE };
+      if(allStars && rectsOverlap(dr, {x:p.x,y:p.y,w:p.w,h:p.h})){
+        // advance level
+        sfxWin();
+        spawnParticles(p.x + p.w/2, p.y + p.h/2, 24, '#9be7ff');
+        showToast('Level Complete!', 1200);
+        setTimeout(()=> {
+          levelIndex++;
+          if(levelIndex >= rawLevels.length){
+            // show win menu
+            showToast('You Win! All levels complete 🎉', 2200);
+            levelIndex = 0;
+            menu.style.display = 'flex';
+            state = null;
+          } else startLevel(levelIndex);
+        }, 700);
+      }
+    }
+  }
+
+  // simple particle updates
+  for(const pt of state.particles){
+    pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += GRAV * 0.4 * dt; pt.life -= dt;
+  }
+  state.particles = state.particles.filter(p=>p.life>0);
+
+  // camera follow (we'll use center of player)
+  camera.tx = (p.x + p.w/2) - canvas.clientWidth*0.5;
+  camera.ty = (p.y + p.h/2) - canvas.clientHeight*0.5;
+  // clamp
+  camera.tx = Math.max(0, Math.min(camera.tx, state.cols*TILE - canvas.clientWidth));
+  camera.ty = Math.max(0, Math.min(camera.ty, state.rows*TILE - canvas.clientHeight));
+}
+
+/* ---------- Particles ---------- */
+function spawnParticles(x,y,count,color){
+  for(let i=0;i<count;i++){
+    state.particles.push({ x, y, vx: (Math.random()-0.5)*220, vy: (Math.random()-0.9)*200, life: 0.6 + Math.random()*0.6, color });
+  }
+}
+
+/* ---------- Render ---------- */
+const camera = { x:0,y:0, tx:0, ty:0 };
+
+function draw(){
+  // smooth camera lerp
+  camera.x += (camera.tx - camera.x) * 0.12;
+  camera.y += (camera.ty - camera.y) * 0.12;
+
+  // clear with gradient background
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0,0,w,h);
+
+  // parallax background stars
+  drawParallaxBackground(ctx, camera.x, camera.y, w, h);
+
+  if(!state){
+    // draw a subtle overlay when menu visible
+    ctx.fillStyle = 'rgba(3,8,12,0.3)';
+    ctx.fillRect(0,0,w,h);
+    return;
+  }
+
+  // draw tiles (only walls)
+  for(let y=0;y<state.rows;y++){
+    for(let x=0;x<state.cols;x++){
+      if(rawLevels[levelIndex].map[y][x] === 1){
+        const sx = x * TILE - camera.x;
+        const sy = y * TILE - camera.y;
+        // tile gradient
+        const g = ctx.createLinearGradient(sx, sy, sx+TILE, sy+TILE);
+        g.addColorStop(0, '#1f3d4f'); g.addColorStop(1, '#12323f');
+        ctx.fillStyle = g;
+        ctx.fillRect(sx, sy, TILE, TILE);
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.strokeRect(sx+1, sy+1, TILE-2, TILE-2);
+      }
+    }
+  }
+
+  // draw boxes
+  for(const b of state.boxes){
+    ctx.fillStyle = '#8d5a3a';
+    ctx.fillRect(b.x - camera.x + 4, b.y - camera.y + 4, b.w - 8, b.h - 8);
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.strokeRect(b.x - camera.x + 4, b.y - camera.y + 4, b.w - 8, b.h - 8);
+  }
+
+  // switches
+  for(const s of state.switches){
+    const sx = s.x * TILE - camera.x, sy = s.y * TILE - camera.y;
+    ctx.fillStyle = s.active ? '#2ecc71' : '#6c757d';
+    ctx.fillRect(sx + 8, sy + 8, TILE - 16, TILE - 16);
+    ctx.fillStyle = '#0b1113';
+    ctx.fillRect(sx + 12, sy + 12, TILE - 24, TILE - 24);
+  }
+
+  // doors
+  for(const d of state.doors){
+    const sx = d.x * TILE - camera.x, sy = d.y * TILE - camera.y;
+    if(d.open){
+      ctx.fillStyle = 'rgba(120, 220, 180, 0.16)';
+      ctx.fillRect(sx, sy, TILE, TILE);
+      ctx.strokeStyle = 'rgba(180,255,210,0.28)';
+      ctx.strokeRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+    } else {
+      ctx.fillStyle = '#7b4e3a';
+      ctx.fillRect(sx, sy, TILE, TILE);
+      ctx.fillStyle = '#4b2f25';
+      ctx.fillRect(sx + 8, sy + 8, TILE - 16, TILE - 16);
+    }
+  }
+
+  // stars
+  for(const s of state.stars){
+    if(s.taken) continue;
+    drawStar(ctx, s.x - camera.x, s.y - camera.y, 7, 8, 4);
+  }
+
+  // player
+  const p = state.player;
+  ctx.save();
+  ctx.translate(p.x - camera.x + p.w/2, p.y - camera.y + p.h/2);
+  ctx.scale(p.facing,1);
+  ctx.fillStyle = '#e9f8ff';
+  ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+  ctx.fillStyle = '#0b1d25';
+  ctx.fillRect(-8, -8, 6, 6);
+  ctx.fillRect(4, -8, 6, 6);
+  ctx.restore();
+
+  // particles
+  for(const pt of state.particles){
+    ctx.fillStyle = pt.color;
+    ctx.fillRect(pt.x - camera.x, pt.y - camera.y, 3, 3);
+  }
+
+  // HUD (top-left)
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  ctx.fillRect(12, 12, 220, 40);
+  ctx.fillStyle = '#bfe8ff';
+  ctx.font = '14px system-ui,Inter,Arial';
+  const taken = state.stars.filter(s=>s.taken).length;
+  ctx.fillText(`Level ${levelIndex+1}: ${L.name}`, 22, 32);
+  ctx.fillStyle = '#ffd166';
+  ctx.fillText(`Stars: ${taken}/${state.stars.length}`, 220 - 86, 32);
+
+}
+
+/* ---------- Helpers: drawParallax & star & shapes ---------- */
+const bgStarPositions = Array.from({length:60}).map(()=>({ x: Math.random() * 4000 - 2000, y: Math.random() * 2000 - 1000, s: Math.random()*2+0.5 }));
+function drawParallaxBackground(ctx, camx, camy, w, h){
+  // soft gradient
+  const g = ctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0, '#071428'); g.addColorStop(1, '#072b3f');
+  ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+  // moving stars parallax
+  for(const s of bgStarPositions){
+    const x = s.x - camx*0.12 + w*0.5;
+    const y = s.y - camy*0.08 + h*0.2;
+    ctx.fillStyle = `rgba(255,255,255,${0.07 + Math.sin(perf*0.01 + s.x)*0.03})`;
+    ctx.fillRect(x, y, s.s, s.s);
+  }
+}
+function drawStar(ctx,x,y,spikes,outer,inner){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.beginPath();
+  let rot = Math.PI/2*3;
+  let step = Math.PI / spikes;
+  ctx.moveTo(0, -outer);
+  for(let i=0;i<spikes;i++){
+    ctx.lineTo(Math.cos(rot)*outer, Math.sin(rot)*outer);
+    rot += step;
+    ctx.lineTo(Math.cos(rot)*inner, Math.sin(rot)*inner);
+    rot += step;
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#ffd166';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- Camera and render loop ---------- */
+let perf = 0;
+function loop(t){
+  const now = performance.now();
+  let dt = Math.min(0.033, (now - last) / 1000);
+  last = now;
+  perf = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- Start & utility ---------- */
+startLevel(0); // start with first level loaded
+requestAnimationFrame(loop);
+
+/* ---------- Simple UI controls exposed ---------- */
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='r') restartLevel();
+  if(e.key==='Escape'){ menu.style.display = 'flex'; }
+});
+
+/* small helper to programmatically start a level (used by menu) */
+function startLevel(i){ openLevelToPlay(i || levelIndex); }
+function openLevelToPlay(i){
+  levelIndex = i;
+  L = rawLevels[levelIndex];
+  state = resetStateForLevel(L);
+  hudLevel.textContent = `Level ${levelIndex+1}: ${L.name}`;
+  menu.style.display = 'none';
+  levelSelect.style.display='none';
+  // small entrance particles
+  spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, 18, '#9be7ff');
+}
+
+/* convenience functions exported to buttons */
+function openLevel(i){
+  startLevel(i);
+}
+
+/* quick restart bound to double-click on canvas */
+canvas.addEventListener('dblclick', ()=> restartLevel());
+
+/* expose restart via menu - using global function name */
+window.restartLevel = restartLevel;
+
+/* make sure level select cards launch correct levels */
+(function hookLevelCards(){
+  // already built earlier; attach listeners for thumbnails
+  const cards = document.querySelectorAll('.levelCard');
+  cards.forEach((card, idx) => {
+    // play button listener set earlier; also click card
+    card.addEventListener('click', (e)=>{
+      // avoid double firing when pressing the small buttons inside
+      if(e.target.tagName.toLowerCase() === 'button') return;
+      openLevel(idx);
+    });
+  });
+})();
+
+/* first-time toast */
+showToast('Welcome — use arrow keys to move. Press ESC for menu.', 1800);
+</script>
+</body>
+</html>
