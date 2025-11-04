@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2D Puzzle Platformer</title>
+<style>
+  :root { --bg:#0b1220; --ui:#e6eef8; --accent:#f39c12; }
+  html,body { height:100%; margin:0; font-family:Inter,system-ui,Segoe UI,Arial; background:var(--bg); color:var(--ui); display:flex; align-items:center; justify-content:center; }
+  #gameWrap { width: 960px; max-width:96vw; aspect-ratio:16/9; background: linear-gradient(180deg,#07101a 0%, #0b1220 100%); border-radius:12px; box-shadow: 0 10px 40px rgba(0,0,0,.6); position:relative; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; }
+  .hud { position:absolute; left:12px; top:12px; font-size:14px; color:var(--ui); display:flex; gap:10px; align-items:center; }
+  .hud .btn { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.06); padding:6px 8px; border-radius:6px; cursor:pointer; user-select:none; }
+  .centerMsg { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none; }
+  .centerMsg h1 { margin:0 0 10px 0; font-size:24px; color:var(--accent); text-shadow: 0 2px 8px rgba(0,0,0,.6);}
+  .centerMsg p { margin:0; color:rgba(255,255,255,.85); }
+  /* mobile controls */
+  .touchControls { position:absolute; right:10px; bottom:10px; display:flex; gap:8px; align-items:center; }
+  .dpad { display:grid; grid-template-columns: repeat(3,54px); grid-template-rows: repeat(2,54px); gap:6px; }
+  .btnTouch { width:54px; height:54px; border-radius:10px; background:rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; font-weight:700; user-select:none; }
+  .actionBtn { width:64px; height:64px; border-radius:12px; background:linear-gradient(180deg,#2d2d2d,#1a1a1a); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:18px; }
+  .small { font-size:12px; opacity:.9; }
+  .levelIndicator { position:absolute; right:12px; top:12px; background:rgba(255,255,255,.03); padding:6px 10px; border-radius:8px; font-size:13px; }
+  a.credit { position:absolute; left:12px; bottom:10px; font-size:12px; color:rgba(255,255,255,.5); text-decoration:none; }
+  @media (max-width:640px){
+    .dpad { transform:scale(.9); transform-origin: right bottom; }
+  }
+</style>
+</head>
+<body>
+  <div id="gameWrap">
+    <canvas id="game"></canvas>
+    <div class="hud">
+      <div class="btn" id="restart">Restart</div>
+      <div class="btn" id="prev">Prev</div>
+      <div class="btn" id="next">Next</div>
+    </div>
+    <div class="levelIndicator" id="levelLabel">Level 1</div>
+    <div class="centerMsg" id="centerMsg" style="display:none;">
+      <h1 id="centerTitle"></h1>
+      <p id="centerText"></p>
+    </div>
+
+    <!-- touch controls for mobile -->
+    <div class="touchControls" id="touchControls" style="display:none;">
+      <div class="dpad">
+        <div></div>
+        <div class="btnTouch small" id="btnUp">▲</div>
+        <div></div>
+        <div class="btnTouch" id="btnLeft">◀</div>
+        <div class="btnTouch" id="btnDown">▼</div>
+        <div class="btnTouch" id="btnRight">▶</div>
+      </div>
+      <div style="width:8px"></div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="actionBtn" id="btnJump">JUMP</div>
+        <div class="actionBtn" id="btnAction" style="font-size:14px">PUSH</div>
+      </div>
+    </div>
+
+    <a class="credit" href="#" onclick="alert('Local game — just save the file and open it.'); return false;">Made with ♥ — paste to index.html</a>
+  </div>
+
+<script>
+/*
+  2D Puzzle Platformer (single-file)
+  - Tile legend:
+    0 = empty
+    1 = solid block
+    2 = player spawn
+    3 = star collectible
+    4 = box (pushable)
+    5 = door (closed)
+    6 = pressure switch
+    7 = platform (moving)
+    8 = one-way platform (jump-through)
+*/
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+let W = 1280, H = 720;
+function resize() {
+  const wrap = document.getElementById('gameWrap');
+  const rect = wrap.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+window.addEventListener('resize', resize);
+
+// simple state/UI
+const centerMsg = document.getElementById('centerMsg');
+const centerTitle = document.getElementById('centerTitle');
+const centerText = document.getElementById('centerText');
+const levelLabel = document.getElementById('levelLabel');
+
+document.getElementById('restart').onclick = ()=> loadLevel(currentLevelIndex);
+document.getElementById('prev').onclick = ()=> { currentLevelIndex = Math.max(0, currentLevelIndex-1); loadLevel(currentLevelIndex); };
+document.getElementById('next').onclick = ()=> { currentLevelIndex = Math.min(levels.length-1, currentLevelIndex+1); loadLevel(currentLevelIndex); };
+
+// Mobile touch detection
+const touchControls = document.getElementById('touchControls');
+function checkTouch() {
+  if ('ontouchstart' in window || navigator.maxTouchPoints>0) touchControls.style.display = 'flex';
+  else touchControls.style.display = 'none';
+}
+checkTouch();
+
+// Basic input
+const input = { left:false, right:false, up:false, down:false, action:false };
+window.addEventListener('keydown', (e)=>{
+  if (e.key === 'ArrowLeft' || e.key === 'a') input.left=true;
+  if (e.key === 'ArrowRight' || e.key === 'd') input.right=true;
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') input.up=true;
+  if (e.key === 'ArrowDown' || e.key === 's') input.down=true;
+  if (e.key === 'e' || e.key === 'Shift') input.action=true;
+});
+window.addEventListener('keyup', (e)=>{
+  if (e.key === 'ArrowLeft' || e.key === 'a') input.left=false;
+  if (e.key === 'ArrowRight' || e.key === 'd') input.right=false;
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') input.up=false;
+  if (e.key === 'ArrowDown' || e.key === 's') input.down=false;
+  if (e.key === 'e' || e.key === 'Shift') input.action=false;
+});
+// touch buttons
+['Left','Right','Up','Down','Jump','Action'].forEach(id=>{
+  const el = document.getElementById('btn'+id);
+  if (!el) return;
+  el.addEventListener('touchstart', (ev)=>{ ev.preventDefault(); if (id==='Left') input.left=true; if (id==='Right') input.right=true; if (id==='Up' || id==='Jump') input.up=true; if (id==='Down') input.down=true; if (id==='Action') input.action=true;});
+  el.addEventListener('touchend', (ev)=>{ ev.preventDefault(); if (id==='Left') input.left=false; if (id==='Right') input.right=false; if (id==='Up' || id==='Jump') input.up=false; if (id==='Down') input.down=false; if (id==='Action') input.action=false;});
+  el.addEventListener('mousedown', ()=>{ if (id==='Left') input.left=true; if (id==='Right') input.right=true; if (id==='Up' || id==='Jump') input.up=true; if (id==='Down') input.down=true; if (id==='Action') input.action=true;});
+  el.addEventListener('mouseup', ()=>{ if (id==='Left') input.left=false; if (id==='Right') input.right=false; if (id==='Up' || id==='Jump') input.up=false; if (id==='Down') input.down=false; if (id==='Action') input.action=false;});
+});
+
+// Level definitions - arrays of rows (y-major). Short but fun levels.
+const levels = [
+  {
+    name: "Intro: Push the Box",
+    tileSize: 48,
+    map: [
+      // 20 cols x 12 rows
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,2,0,0,0,0,0,0,4,0,3,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,8,8,8,0,0,0,0,0,0,0,6,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,7,0,0,0,0,0,0,0,0,0,3,0,1],
+      [1,0,0,0,0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,1,1,1,1,1,0,0,5,5,5,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,3,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    moving: [
+      // example moving platform: {x,y,w,h,dx,dy,range}
+      { x: 6, y: 5, w:1, h:1, dx:0, dy:-1, range:2 }
+    ]
+  },
+
+  {
+    name: "Stairs & Switch",
+    tileSize: 48,
+    map: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,1],
+      [1,0,2,0,0,0,0,0,0,0,0,4,0,0,0,6,0,0,0,1],
+      [1,0,0,0,0,0,0,0,8,8,8,0,0,0,0,0,0,3,0,1],
+      [1,0,0,0,0,0,0,1,1,1,1,1,0,0,5,5,5,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,1],
+      [1,0,0,3,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    moving:[]
+  }
+];
+
+// find global dimensions
+let currentLevelIndex = 0;
+let state = null;
+
+function loadLevel(i){
+  const L = levels[i];
+  state = {
+    levelName: L.name,
+    tileSize: L.tileSize || 48,
+    cols: L.map[0].length,
+    rows: L.map.length,
+    map: L.map.map(row=>row.slice()),
+    boxes: [],
+    stars: [],
+    switches: [],
+    doors: [],
+    platforms: [],
+    player: { x:0, y:0, w:34, h:42, vx:0, vy:0, onGround:false, facing:1, alive:true }
+  };
+  // parse map
+  for (let y=0;y<state.rows;y++){
+    for (let x=0;x<state.cols;x++){
+      const t = state.map[y][x];
+      if (t===2){
+        state.player.x = x * state.tileSize + (state.tileSize - state.player.w)/2;
+        state.player.y = y * state.tileSize + (state.tileSize - state.player.h);
+        state.map[y][x] = 0;
+      }
+      if (t===4) { state.boxes.push({x:x*state.tileSize, y:y*state.tileSize, w:state.tileSize, h:state.tileSize}); state.map[y][x]=0; }
+      if (t===3) { state.stars.push({x:x*state.tileSize+state.tileSize/2, y:y*state.tileSize+state.tileSize/2, taken:false}); state.map[y][x]=0; }
+      if (t===6) { state.switches.push({x,y,active:false}); state.map[y][x]=0; }
+      if (t===5) { state.doors.push({x,y,open:false}); state.map[y][x]=0; }
+      if (t===7) { state.platforms.push({x:x*state.tileSize, y:y*state.tileSize, w:state.tileSize, h:state.tileSize, baseY:y*state.tileSize, t:0}); state.map[y][x]=0; }
+    }
+  }
+  // add moving platform defs from level.moving
+  if (L.moving) for (const m of L.moving){
+    state.platforms.push(Object.assign({}, m, {x:m.x*state.tileSize, y:m.y*state.tileSize, baseY:m.y*state.tileSize, t:0, w:m.w*state.tileSize, h:(m.h||1)*state.tileSize}));
+  }
+
+  centerMsg.style.display = 'none';
+  levelLabel.textContent = `Level ${currentLevelIndex+1}: ${state.levelName}`;
+  resize();
+  // center camera
+  camera.x = 0; camera.y = 0;
+}
+
+function isSolidTileAt(tx, ty){
+  if (tx<0 || ty<0 || tx>=state.cols || ty>=state.rows) return true;
+  return state.map[ty][tx] === 1;
+}
+
+function rectsOverlap(a,b){
+  return a.x < b.x + b.w && a.x+a.w > b.x && a.y < b.y + b.h && a.y+a.h > b.y;
+}
+
+// physics constants
+const GRAV = 1200;
+const MAX_FALL = 1200;
+const MOVE_ACC = 1600;
+const FRICTION = 0.85;
+const MAX_RUN = 220;
+const JUMP_SPEED = 480;
+const TILE = ()=> state.tileSize;
+
+// camera
+const camera = { x:0, y:0, w:0, h:0 };
+
+function update(dt){
+  if (!state || !state.player.alive) return;
+
+  const p = state.player;
+  // horizontal input
+  let moveDir = 0;
+  if (input.left) moveDir -= 1;
+  if (input.right) moveDir += 1;
+
+  // apply horizontal acceleration
+  if (moveDir!==0){
+    p.vx += moveDir * MOVE_ACC * dt;
+    p.facing = moveDir;
+  } else {
+    p.vx *= Math.pow(FRICTION, dt*60);
+    if (Math.abs(p.vx)<5) p.vx = 0;
+  }
+  p.vx = Math.max(Math.min(p.vx, MAX_RUN), -MAX_RUN);
+
+  // jumping: allow coyote time & ground test (simple)
+  if (input.up && p.onGround){
+    p.vy = -JUMP_SPEED;
+    p.onGround = false;
+  }
+
+  // gravity
+  p.vy += GRAV * dt;
+  p.vy = Math.min(p.vy, MAX_FALL);
+
+  // integrate
+  let nx = p.x + p.vx * dt;
+  let ny = p.y + p.vy * dt;
+
+  // horizontal collision with tiles & boxes
+  const playerRect = ()=> ({x:nx, y:ny, w:p.w, h:p.h});
+
+  // boxes collisions: simple pushing
+  for (const box of state.boxes){
+    // apply gravity to boxes
+    box.vy = box.vy || 0;
+    box.vy += GRAV * dt;
+    box.vy = Math.min(box.vy, MAX_FALL);
+    // move box vertically
+    box.y += box.vy * dt;
+    handleBoxTileCollision(box);
+  }
+
+  // horizontal: test potential collisions with solid tiles
+  p.onGround = false;
+  // move on X axis and resolve tile collisions
+  p.x = nx;
+  for (let attempt=0; attempt<2; attempt++){
+    const left = Math.floor(p.x / TILE());
+    const right = Math.floor((p.x+p.w-1)/TILE());
+    const top = Math.floor(p.y / TILE());
+    const bottom = Math.floor((p.y+p.h-1)/TILE());
+    let collided = false;
+    for (let ty=top; ty<=bottom; ty++){
+      if (isSolidTileAt(left, ty) && p.vx<0){
+        p.x = (left+1)*TILE();
+        p.vx = 0;
+        collided = true;
+      }
+      if (isSolidTileAt(right, ty) && p.vx>0){
+        p.x = right*TILE() - p.w;
+        p.vx = 0;
+        collided = true;
+      }
+    }
+    if (!collided) break;
+  }
+
+  // move on Y axis
+  p.y += p.vy * dt;
+  // check vertical collisions
+  let top = Math.floor(p.y / TILE());
+  let bottom = Math.floor((p.y+p.h-1)/TILE());
+  let left = Math.floor(p.x / TILE());
+  let right = Math.floor((p.x+p.w-1)/TILE());
+
+  // one-way platform check: if falling, collides with 8
+  for (let tx=left; tx<=right; tx++){
+    for (let ty=top; ty<=bottom; ty++){
+      const t = (ty>=0 && ty<state.rows && tx>=0 && tx<state.cols) ? levels[currentLevelIndex].map[ty][tx] : 1;
+      // treat 1 as solid always
+      if (isSolidTileAt(tx, ty)){
+        if (p.vy>0){
+          p.y = ty*TILE() - p.h;
+          p.vy = 0;
+          p.onGround = true;
+        } else if (p.vy<0){
+          p.y = (ty+1)*TILE();
+          p.vy = 0;
+        }
+      }
+    }
+  }
+
+  // boxes push by player
+  handlePlayerBoxInteractions();
+
+  // one-way platforms (tile 8) check: if landing from above
+  for (let bx of state.platforms){
+    // moving platform rectangle
+    const pr = {x:bx.x, y:bx.y, w:bx.w, h:bx.h};
+    // standing detection
+    const feet = {x:p.x+6, y:p.y+p.h, w:p.w-12, h:2};
+    if (rectsOverlap(feet, pr) && p.vy>=0 && p.y+p.h <= pr.y+6){
+      p.y = pr.y - p.h;
+      p.vy = 0;
+      p.onGround = true;
+    }
+  }
+
+  // stars pickup
+  for (const s of state.stars) if (!s.taken){
+    const sx = s.x - 10, sy = s.y - 10, sw = 20, sh = 20;
+    if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:sx,y:sy,w:sw,h:sh})){
+      s.taken = true;
+    }
+  }
+
+  // switches and doors
+  for (const sw of state.switches){
+    const sx = sw.x * TILE(), sy = sw.y * TILE(), swRect = {x:sx,y:sy,w:TILE(),h:TILE()};
+    sw.active = false;
+    // active if any box or player stands on it
+    if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h}, swRect)) sw.active = true;
+    for (const b of state.boxes) if (rectsOverlap(b, swRect)) sw.active = true;
+    // apply effect to doors: toggle open if any switch active
+    for (const d of state.doors){
+      // very simple rule: if any switch active then doors open
+      d.open = state.switches.some(s=>s.active);
+    }
+  }
+
+  // doors: if player intersects an open door, level complete
+  let allStars = state.stars.length>0 ? state.stars.every(s=>s.taken) : true;
+  for (const d of state.doors){
+    const dr = {x:d.x*TILE(), y:d.y*TILE(), w:TILE(), h:TILE()};
+    // draw door open/closed handled in render; if open and player overlaps -> next level
+    if (d.open && rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h}, dr) && allStars){
+      showCenter("Level Complete!", "Nice work — proceeding to next level.");
+      currentLevelIndex = Math.min(levels.length-1, currentLevelIndex+1);
+      setTimeout(()=> loadLevel(currentLevelIndex), 700);
+    }
+  }
+
+  // moving platforms update
+  for (const pl of state.platforms){
+    if (pl.dx || pl.dy){
+      pl.t += dt * 2;
+      pl.x += (pl.dx || 0) * Math.sin(pl.t) * 30 * dt;
+      pl.y = pl.baseY + (pl.dy || 0) * Math.sin(pl.t) * pl.range * TILE();
+      // if player stands on top of moving platform, move the player with it
+      const platformRect = {x:pl.x,y:pl.y,w:pl.w||TILE(),h:pl.h||TILE()};
+      const feet = {x:p.x+6, y:p.y+p.h, w:p.w-12, h:2};
+      if (rectsOverlap(feet, platformRect) && p.vy>=0){
+        p.y = platformRect.y - p.h;
+        p.onGround = true;
+      }
+    }
+  }
+
+  // keep player in bounds
+  if (p.y > state.rows * TILE() + 200) {
+    // fell out -> restart level
+    showCenter("You fell!", "Restarting level...");
+    setTimeout(()=> loadLevel(currentLevelIndex), 700);
+  }
+
+  // camera follow
+  cameraTargetX = p.x + p.w/2 - canvas.width/(devicePixelRatio*2);
+  cameraTargetY = p.y + p.h/2 - canvas.height/(devicePixelRatio*2);
+  camera.x += (cameraTargetX - camera.x) * Math.min(1, dt*6);
+  camera.y += (cameraTargetY - camera.y) * Math.min(1, dt*6);
+}
+
+function handleBoxTileCollision(box){
+  // simple world collisions for boxes with tiles
+  // horizontal
+  if (!box.vx) box.vx = 0;
+  for (let attempt=0; attempt<2; attempt++){
+    const left = Math.floor(box.x / TILE());
+    const right = Math.floor((box.x+box.w-1)/TILE());
+    const top = Math.floor(box.y / TILE());
+    const bottom = Math.floor((box.y+box.h-1)/TILE());
+    let collided = false;
+    if (box.vx < 0){
+      for (let ty=top; ty<=bottom; ty++){
+        if (isSolidTileAt(left, ty)){
+          box.x = (left+1)*TILE();
+          box.vx = 0;
+          collided = true;
+        }
+      }
+    } else if (box.vx > 0){
+      for (let ty=top; ty<=bottom; ty++){
+        if (isSolidTileAt(right, ty)){
+          box.x = right*TILE() - box.w;
+          box.vx = 0;
+          collided = true;
+        }
+      }
+    }
+    if (!collided) break;
+  }
+  // vertical collisions
+  const left = Math.floor(box.x / TILE());
+  const right = Math.floor((box.x+box.w-1)/TILE());
+  let bottom = Math.floor((box.y+box.h-1)/TILE());
+  for (let tx=left; tx<=right; tx++){
+    if (isSolidTileAt(tx, bottom) && box.vy>0){
+      box.y = bottom*TILE() - box.h;
+      box.vy = 0;
+    }
+  }
+}
+
+function handlePlayerBoxInteractions(){
+  // if player's right overlaps box and pushing -> move box
+  for (const box of state.boxes){
+    if (rectsOverlap({x:state.player.x,y:state.player.y,w:state.player.w,h:state.player.h}, box)){
+      // simple resolve: move player out
+      if (state.player.vx > 0){
+        state.player.x = box.x - state.player.w - 0.1;
+      } else if (state.player.vx < 0){
+        state.player.x = box.x + box.w + 0.1;
+      } else if (state.player.vy > 0){
+        state.player.y = box.y - state.player.h - 0.1;
+        state.player.vy = 0;
+        state.player.onGround = true;
+      } else if (state.player.vy < 0){
+        state.player.y = box.y + box.h + 0.1;
+        state.player.vy = 0;
+      }
+    } else {
+      // pushing from side: if near and input.action, nudge box
+      const pushRange = 8;
+      if (state.player.y + state.player.h > box.y + 8 && state.player.y < box.y + box.h - 8){
+        // player to left of box and pressing right
+        if (state.player.x + state.player.w > box.x - pushRange && state.player.x + state.player.w < box.x + box.w/2 && input.right){
+          box.x += 1.6; box.vx = 80;
+        }
+        // player to right and pressing left
+        if (state.player.x < box.x + box.w + pushRange && state.player.x > box.x + box.w/2 && input.left){
+          box.x -= 1.6; box.vx = -80;
+        }
+      }
+    }
+  }
+}
+
+// rendering
+function draw(){
+  // clear
+  ctx.fillStyle = '#07101a';
+  ctx.fillRect(0,0,canvas.width/devicePixelRatio, canvas.height/devicePixelRatio);
+  if (!state) return;
+
+  const tw = TILE();
+  const camX = Math.floor(camera.x);
+  const camY = Math.floor(camera.y);
+  // draw tiles
+  for (let y=0;y<state.rows;y++){
+    for (let x=0;x<state.cols;x++){
+      const t = levels[currentLevelIndex].map[y][x];
+      const sx = x*tw - camX;
+      const sy = y*tw - camY;
+      // skip offscreen
+      if (sx > canvas.width/devicePixelRatio || sy > canvas.height/devicePixelRatio || sx+tw < 0 || sy+tw < 0) continue;
+      if (isSolidTileAt(x,y)){
+        ctx.fillStyle = '#20405a';
+        ctx.fillRect(sx, sy, tw, tw);
+        // tile border
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.strokeRect(sx,sy,tw,tw);
+      }
+      // draw one-way platforms (8)
+      if (t===8){
+        ctx.fillStyle = '#2f4a6a';
+        ctx.fillRect(sx, sy + tw*0.6, tw, tw*0.4);
+      }
+      // draw stars on map (we moved stars to state.stars, so nothing here)
+      // draw switches and doors from state structures
+    }
+  }
+
+  // draw moving platforms from state.platforms and map switches/doors/stars
+  for (const pl of state.platforms){
+    ctx.fillStyle = '#3b6f8b';
+    ctx.fillRect(pl.x - camX, pl.y - camY, pl.w||tw, pl.h||tw);
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.strokeRect(pl.x-camX,pl.y-camY,(pl.w||tw),(pl.h||tw));
+  }
+
+  // draw boxes
+  for (const box of state.boxes){
+    ctx.fillStyle = '#b0845a';
+    ctx.fillRect(box.x - camX + 4, box.y - camY + 4, box.w - 8, box.h - 8);
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.strokeRect(box.x - camX + 4, box.y - camY + 4, box.w - 8, box.h - 8);
+  }
+
+  // switches
+  for (const sw of state.switches){
+    const sx = sw.x*TILE()-camX, sy = sw.y*TILE()-camY;
+    ctx.fillStyle = sw.active ? '#40c057' : '#6c757d';
+    ctx.fillRect(sx+8, sy+8, TILE()-16, TILE()-16);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(sx+12, sy+12, TILE()-24, TILE()-24);
+  }
+
+  // doors
+  for (const d of state.doors){
+    const sx = d.x*TILE()-camX, sy = d.y*TILE()-camY;
+    if (!d.open){
+      ctx.fillStyle = '#6b4a3a';
+      ctx.fillRect(sx, sy, TILE(), TILE());
+      ctx.fillStyle = '#3b2a23';
+      ctx.fillRect(sx+8, sy+8, TILE()-16, TILE()-16);
+    } else {
+      ctx.fillStyle = 'rgba(60,180,120,0.18)';
+      ctx.fillRect(sx, sy, TILE(), TILE());
+      // little shimmer
+      ctx.strokeStyle = 'rgba(160,255,200,0.6)';
+      ctx.strokeRect(sx+4,sy+4,TILE()-8,TILE()-8);
+    }
+  }
+
+  // stars
+  for (const s of state.stars){
+    if (s.taken) continue;
+    const sx = s.x - camX, sy = s.y - camY;
+    drawStar(sx, sy, 8, 4, 2);
+  }
+
+  // player
+  const p = state.player;
+  ctx.save();
+  ctx.translate(p.x - camX + p.w/2, p.y - camY + p.h/2);
+  ctx.scale(p.facing,1);
+  // body
+  ctx.fillStyle = '#f5f5f5';
+  ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+  // eyes
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-8, -8, 6, 6);
+  ctx.fillRect(4, -8, 6, 6);
+  ctx.restore();
+
+  // UI overlay: stars collected
+  const taken = state.stars.filter(s=>s.taken).length;
+  const total = state.stars.length;
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(12, canvas.height/devicePixelRatio - 44, 180, 34);
+  ctx.font = '16px system-ui,Inter,Arial';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(`Stars: ${taken}/${total}`, 20, canvas.height/devicePixelRatio - 18);
+}
+
+function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+  const camX = Math.floor(camera.x);
+  const camY = Math.floor(camera.y);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.beginPath();
+  let rot = Math.PI / 2 * 3;
+  let x = 0;
+  let y = 0;
+  const step = Math.PI / spikes;
+  ctx.moveTo(0, -outerRadius);
+  for (let i = 0; i < spikes; i++) {
+    x = Math.cos(rot) * outerRadius;
+    y = Math.sin(rot) * outerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+
+    x = Math.cos(rot) * innerRadius;
+    y = Math.sin(rot) * innerRadius;
+    ctx.lineTo(x, y);
+    rot += step;
+  }
+  ctx.lineTo(0, -outerRadius);
+  ctx.closePath();
+  ctx.fillStyle = '#ffd166';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+// simple game loop
+let last = performance.now();
+let accumulator = 0;
+function animate(t){
+  const dt = Math.min(0.033, (t - last) / 1000);
+  last = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(animate);
+}
+
+function showCenter(title, text){
+  centerTitle.textContent = title;
+  centerText.textContent = text;
+  centerMsg.style.display = 'block';
+  setTimeout(()=> centerMsg.style.display = 'none', 1200);
+}
+
+// init
+resize();
+loadLevel(currentLevelIndex);
+requestAnimationFrame(animate);
+
+// helpful instructions on first load
+setTimeout(()=>{
+  showCenter("Welcome!", "Use ← → to move, ↑ to jump, push boxes, hit switches.");
+}, 200);
+</script>
+</body>
+</html>
