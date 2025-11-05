@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stick Figure Game with Enemies</title>
+<title>Stick Figure Game</title>
 <style>
   body {
     margin: 0;
@@ -22,7 +22,6 @@
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
@@ -36,6 +35,7 @@ const player = {
     velocityY: 0,
     speed: 5,
     jumping: false,
+    facing: 1, // 1=right, -1=left
     attackCooldown: 0
 };
 
@@ -73,16 +73,22 @@ function attack() {
             y: player.y + 25,
             radius: 5,
             speed: 10,
-            direction: keys['ArrowLeft'] ? -1 : 1
+            direction: player.facing
         });
-        player.attackCooldown = 20; // cooldown frames
+        player.attackCooldown = 20;
     }
 }
 
 function update() {
     // Player movement
-    if (keys['ArrowLeft']) player.x -= player.speed;
-    if (keys['ArrowRight']) player.x += player.speed;
+    if (keys['ArrowLeft']) {
+        player.x -= player.speed;
+        player.facing = -1;
+    }
+    if (keys['ArrowRight']) {
+        player.x += player.speed;
+        player.facing = 1;
+    }
 
     // Jump
     if (keys['ArrowUp'] && !player.jumping) {
@@ -98,8 +104,9 @@ function update() {
     platforms.forEach(platform => {
         if (player.x < platform.x + platform.width &&
             player.x + player.width > platform.x &&
-            player.y < platform.y + platform.height &&
-            player.y + player.height > platform.y) {
+            player.y + player.height > platform.y &&
+            player.y + player.height < platform.y + platform.height + 10 &&
+            player.velocityY >= 0) {
                 player.y = platform.y - player.height;
                 player.velocityY = 0;
                 player.jumping = false;
@@ -137,7 +144,6 @@ function update() {
     // Move enemies
     enemies.forEach(enemy => {
         enemy.x += enemy.speed * enemy.direction;
-        // Bounce back at edges
         if(enemy.x < 0 || enemy.x + enemy.width > canvas.width) enemy.direction *= -1;
     });
 
@@ -148,57 +154,62 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw player stick figure
+    // Player stick figure
     ctx.strokeStyle = player.color;
     ctx.lineWidth = 2;
-
+    // Head
     ctx.beginPath();
-    ctx.arc(player.x + player.width/2, player.y + 10, 10, 0, Math.PI * 2); // head
+    ctx.arc(player.x + player.width/2, player.y + 10, 10, 0, Math.PI * 2);
     ctx.stroke();
-
-    ctx.beginPath(); // body
+    // Body
+    ctx.beginPath();
     ctx.moveTo(player.x + player.width/2, player.y + 20);
     ctx.lineTo(player.x + player.width/2, player.y + 40);
     ctx.stroke();
-
-    ctx.beginPath(); // arms
+    // Arms
+    ctx.beginPath();
     ctx.moveTo(player.x + player.width/2 - 10, player.y + 25);
     ctx.lineTo(player.x + player.width/2 + 10, player.y + 25);
     ctx.stroke();
-
-    ctx.beginPath(); // legs
+    // Legs
+    ctx.beginPath();
     ctx.moveTo(player.x + player.width/2, player.y + 40);
     ctx.lineTo(player.x + player.width/2 - 10, player.y + 50);
     ctx.moveTo(player.x + player.width/2, player.y + 40);
     ctx.lineTo(player.x + player.width/2 + 10, player.y + 50);
     ctx.stroke();
 
-    // Draw platforms
+    // Platforms
     ctx.fillStyle = 'green';
     platforms.forEach(p => ctx.fillRect(p.x, p.y, p.width, p.height));
 
-    // Draw projectiles
+    // Projectiles
     ctx.fillStyle = 'yellow';
-    projectiles.forEach(p => ctx.beginPath(), ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2), ctx.fill());
+    projectiles.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+        ctx.fill();
+    });
 
-    // Draw enemies
+    // Enemies
     enemies.forEach(enemy => {
         ctx.strokeStyle = enemy.color;
+        // Head
         ctx.beginPath();
-        ctx.arc(enemy.x + enemy.width/2, enemy.y + 10, 10, 0, Math.PI*2); // head
+        ctx.arc(enemy.x + enemy.width/2, enemy.y + 10, 10, 0, Math.PI*2);
         ctx.stroke();
-
-        ctx.beginPath(); // body
+        // Body
+        ctx.beginPath();
         ctx.moveTo(enemy.x + enemy.width/2, enemy.y + 20);
         ctx.lineTo(enemy.x + enemy.width/2, enemy.y + 40);
         ctx.stroke();
-
-        ctx.beginPath(); // arms
+        // Arms
+        ctx.beginPath();
         ctx.moveTo(enemy.x + enemy.width/2 - 10, enemy.y + 25);
         ctx.lineTo(enemy.x + enemy.width/2 + 10, enemy.y + 25);
         ctx.stroke();
-
-        ctx.beginPath(); // legs
+        // Legs
+        ctx.beginPath();
         ctx.moveTo(enemy.x + enemy.width/2, enemy.y + 40);
         ctx.lineTo(enemy.x + enemy.width/2 - 10, enemy.y + 50);
         ctx.moveTo(enemy.x + enemy.width/2, enemy.y + 40);
