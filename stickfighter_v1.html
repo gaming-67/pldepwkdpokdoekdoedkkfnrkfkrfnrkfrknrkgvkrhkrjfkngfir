@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Stick Figure Fighter — Dojo Edition</title>
+<style>
+  html,body{
+    margin:0;padding:0;
+    height:100%;overflow:hidden;
+    background:#0b1420;color:#fff;
+    font-family:sans-serif;text-align:center;
+  }
+  #game {
+    display:block;
+    background:#111;
+    width:100vw;
+    height:100vh;
+  }
+  /* Overlays */
+  .overlay {
+    position:fixed;
+    top:0;left:0;
+    width:100%;height:100%;
+    background:rgba(0,0,0,0.7);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    z-index:5;
+  }
+  .hidden {display:none;}
+  button {
+    background:#1e293b;
+    color:#fff;
+    border:none;
+    padding:12px 20px;
+    margin:8px;
+    border-radius:8px;
+    font-size:16px;
+    cursor:pointer;
+    transition:0.2s;
+  }
+  button:hover {background:#334155;}
+</style>
+</head>
+<body>
+
+<canvas id="game" width="1100" height="620"></canvas>
+
+<!-- MENU -->
+<div id="menu" class="overlay">
+  <h1>Stick Figure Fighter — Dojo Edition</h1>
+  <button id="startBtn">Start Fight</button>
+  <button id="charBtn">Character Select</button>
+  <button id="stageBtn">Stage Select</button>
+  <p>Controls: A/D move, W jump, J light, K heavy, L kick</p>
+</div>
+
+<!-- Character Select -->
+<div id="charSelect" class="overlay hidden">
+  <h2>Select Your Fighter</h2>
+  <button class="char" data-char="samurai">Samurai</button>
+  <button class="char" data-char="monk">Monk</button>
+  <button class="char" data-char="ronin">Ronin</button>
+  <button class="backBtn">Back</button>
+</div>
+
+<!-- Stage Select -->
+<div id="stageSelect" class="overlay hidden">
+  <h2>Select Stage</h2>
+  <button class="stage" data-stage="dojo">Dojo</button>
+  <button class="stage" data-stage="courtyard">Courtyard</button>
+  <button class="stage" data-stage="rooftop">Rooftop</button>
+  <button class="backBtn">Back</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let gameRunning = false;
+let selectedChar = "samurai";
+let selectedStage = "dojo";
+
+// Simple background draw
+function drawBackground() {
+  if (selectedStage === "dojo") ctx.fillStyle = "#142533";
+  else if (selectedStage === "courtyard") ctx.fillStyle = "#2b1a10";
+  else ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+function draw() {
+  if (!gameRunning) return;
+  drawBackground();
+  ctx.fillStyle = "white";
+  ctx.font = "24px Arial";
+  ctx.fillText(`Stage: ${selectedStage}`, 20, 40);
+  ctx.fillText(`Fighter: ${selectedChar}`, 20, 70);
+  requestAnimationFrame(draw);
+}
+
+// MENU LOGIC
+const menu = document.getElementById("menu");
+const charSelect = document.getElementById("charSelect");
+const stageSelect = document.getElementById("stageSelect");
+
+function showMenu() {
+  menu.classList.remove("hidden");
+  charSelect.classList.add("hidden");
+  stageSelect.classList.add("hidden");
+}
+function showCharSelect() {
+  menu.classList.add("hidden");
+  charSelect.classList.remove("hidden");
+}
+function showStageSelect() {
+  menu.classList.add("hidden");
+  stageSelect.classList.remove("hidden");
+}
+function startGame() {
+  menu.classList.add("hidden");
+  charSelect.classList.add("hidden");
+  stageSelect.classList.add("hidden");
+  gameRunning = true;
+  draw();
+}
+
+// BUTTON EVENTS
+document.getElementById("startBtn").addEventListener("click", startGame);
+document.getElementById("charBtn").addEventListener("click", showCharSelect);
+document.getElementById("stageBtn").addEventListener("click", showStageSelect);
+document.querySelectorAll(".backBtn").forEach(btn => btn.addEventListener("click", showMenu));
+
+document.querySelectorAll(".char").forEach(btn => {
+  btn.addEventListener("click", e => {
+    selectedChar = e.target.dataset.char;
+    showMenu();
+  });
+});
+
+document.querySelectorAll(".stage").forEach(btn => {
+  btn.addEventListener("click", e => {
+    selectedStage = e.target.dataset.stage;
+    showMenu();
+  });
+});
+
+showMenu();
+</script>
+
+</body>
+</html>
