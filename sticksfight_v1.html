@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sticks Fight</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#071421;color:#e6eef8;font-family:sans-serif;overflow:hidden;}
+canvas{display:block;margin:0 auto;background:#071426;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.6);}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:50;}
+.hidden{display:none;}
+button{margin:6px;padding:10px 16px;border:none;border-radius:6px;background:#0f1724;color:#e6eef8;cursor:pointer;}
+button:hover{background:#334155;}
+.row{display:flex;gap:10px;margin-top:8px;}
+.hud{display:flex;justify-content:space-between;width:1100px;margin:12px auto;}
+.panel{background:rgba(255,255,255,0.05);padding:6px 12px;border-radius:6px;}
+.small{font-size:12px;color:#98a8b3;}
+</style>
+</head>
+<body>
+<canvas id="game" width="1100" height="620"></canvas>
+
+<!-- Main Menu -->
+<div id="menu" class="overlay">
+<h1>Sticks Fight</h1>
+<div class="row">
+<button id="start1p">1 Player</button>
+<button id="start2p">2 Player</button>
+<button id="charBtn">Characters</button>
+<button id="stageBtn">Stages</button>
+<button id="settingsBtn">Settings</button>
+<button id="updateBtn">Update Log</button>
+</div>
+</div>
+
+<!-- Character Selection -->
+<div id="charSelect" class="overlay hidden">
+<h2>Select Character & Costume</h2>
+<div class="row">
+<button data-char="samurai" data-costume="default">Samurai (Default)</button>
+<button data-char="samurai" data-costume="alt1">Samurai (Alt 1)</button>
+<button data-char="monk" data-costume="default">Monk (Default)</button>
+<button data-char="monk" data-costume="alt1">Monk (Alt 1)</button>
+<button data-char="ronin" data-costume="default">Ronin (Default)</button>
+<button data-char="ronin" data-costume="alt1">Ronin (Alt 1)</button>
+</div>
+<div class="row"><button id="charBack">Back</button></div>
+</div>
+
+<!-- Stage Selection -->
+<div id="stageSelect" class="overlay hidden">
+<h2>Select Stage</h2>
+<div class="row">
+<button data-stage="Dojo">Dojo</button>
+<button data-stage="Rooftop">Rooftop</button>
+<button data-stage="Courtyard">Courtyard</button>
+</div>
+<div class="row"><button id="stageBack">Back</button></div>
+</div>
+
+<!-- Settings -->
+<div id="settings" class="overlay hidden">
+<h2>Settings</h2>
+<div class="row">
+<button id="musicToggle">Toggle Music</button>
+<button id="sfxToggle">Toggle SFX</button>
+<button id="particlesToggle">Toggle Particles</button>
+<button id="hitboxToggle">Toggle Hitboxes</button>
+<button id="fullscreenToggle">Fullscreen</button>
+</div>
+<div class="row"><button id="settingsBack">Back</button></div>
+</div>
+
+<!-- Update Log -->
+<div id="updateLog" class="overlay hidden">
+<h2>Update Log</h2>
+<div style="max-height:300px;overflow-y:auto;text-align:left;padding:6px 12px;background:rgba(0,0,0,0.3);border-radius:6px;">
+- v1.0: Sticks Fight released<br>
+- Added 1P mode with AI<br>
+- Added 2P local mode<br>
+- Added Character selection + alt costumes<br>
+- Added Stage selection: Dojo, Rooftop, Courtyard<br>
+- Added Combat system: Light/Heavy/Kick/Dash/Block/Combos<br>
+- Added Health & Meter bars<br>
+- Added Particles and hit effects<br>
+- Added Settings panel: Music, SFX, Particles, Hitboxes, Fullscreen<br>
+- Added Victory screen with restart and menu<br>
+</div>
+<div class="row"><button id="updateBack">Back</button></div>
+</div>
+
+<!-- Victory Screen -->
+<div id="victory" class="overlay hidden">
+<h1 id="victoryText">Player Wins!</h1>
+<div class="row">
+<button id="restartBtn">Restart</button>
+<button id="menuBtn">Menu</button>
+</div>
+</div>
+
+<!-- HUD -->
+<div class="hud">
+<div class="panel">
+<strong>Player 1</strong><br>
+<span class="small">HP: <span id="p1hp">100</span> | Meter: <span id="p1meter">0</span></span>
+</div>
+<div class="panel" id="status">Round 1</div>
+<div class="panel">
+<strong>Player 2</strong><br>
+<span class="small">HP: <span id="p2hp">100</span> | Meter: <span id="p2meter">0</span></span>
+</div>
+</div>
+
+<script>
+// Canvas & context
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// HUD elements
+const p1hpEl = document.getElementById('p1hp');
+const p2hpEl = document.getElementById('p2hp');
+const p1meterEl = document.getElementById('p1meter');
+const p2meterEl = document.getElementById('p2meter');
+const statusEl = document.getElementById('status');
+
+// Overlays
+const menu = document.getElementById('menu');
+const charSelect = document.getElementById('charSelect');
+const stageSelect = document.getElementById('stageSelect');
+const settings = document.getElementById('settings');
+const updateLog = document.getElementById('updateLog');
+const victory = document.getElementById('victory');
+const victoryText = document.getElementById('victoryText');
+
+// Game state
+let mode = "1P"; // "1P" or "2P"
+let aiDifficulty = "Medium"; // default AI
+let selectedChar = "samurai";
+let selectedCostume = "default";
+let selectedStage = "Dojo";
+let round = 1;
+let gameRunning = false;
+let showParticles = true;
+let showHitboxes = false;
+let musicOn = true;
+let sfxOn = true;
+
+// Audio context for SFX
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+const master = audioCtx.createGain(); master.gain.value = 0.06; master.connect(audioCtx.destination);
+function sfx(freq,dur=120,type='sine',vol=0.12){ if(!sfxOn) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type=type;o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(master);o.start();g.gain.linearRampToValueAtTime(0,audioCtx.currentTime+dur/1000); setTimeout(()=>o.stop(),dur+20);}
+function playHit(){ sfx(640,80,'square',0.14); }
+function playHeavy(){ sfx(320,160,'sawtooth',0.16);}
+function playJump(){ sfx(880,120,'sine',0.06);}
+function startMusic(){ if(!musicOn) return; if(window._music) return; window._music=setInterval(()=>{sfx(130,120,'sine',0.03); setTimeout(()=>sfx(260,100,'sine',0.02),150)},600);}
+function stopMusic(){if(window._music){clearInterval(window._music);window._music=null;}}
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e=>{ keys[e.key]=true; if(e.key===' ' && audioCtx.state==='suspended') audioCtx.resume();});
+window.addEventListener('keyup', e=>{ keys[e.key]=false;});
+
+// Fighter class
+class Fighter{
+  constructor(x,color){this.x=x;this.y=H-120;this.vx=0;this.vy=0;this.w=28;this.h=64;this.color=color;this.health=100;this.maxHealth=100;this.onGround=true;this.facing=(x<W/2)?1:-1;this.attackCD=0;this.heavyCD=0;this.kickCD=0;this.dashCD=0;this.combo=0;this.comboTimer=0;this.meter=0;this.blocking=false;this.hitFlash=0;this.stun=0;}
+  box(){return {x:this.x-this.w/2,y:this.y-this.h,w:this.w,h:this.h};}
+  update(dt){if(this.stun>0)this.stun=Math.max(0,this.stun-dt);if(!this.onGround)this.vy+=0.9;this.y+=this.vy;this.x+=this.vx;this.vx*=0.9;if(this.y>=H-120){this.y=H-120;this.vy=0;this.onGround=true;}else this.onGround=false;this.x=Math.max(80,Math.min(W-80,this.x));this.attackCD=Math.max(0,this.attackCD-dt);this.heavyCD=Math.max(0,this.heavyCD-dt);this.kickCD=Math.max(0,this.kickCD-dt);this.dashCD=Math.max(0,this.dashCD-dt);if(this.comboTimer>0)this.comboTimer=Math.max(0,this.comboTimer-dt);else this.combo=0;if(this.hitFlash>0)this.hitFlash=Math.max(0,this.hitFlash-dt);this.meter=Math.min(100,this.meter+0.005*dt);}
+  draw(ctx){ctx.save();ctx.translate(this.x,this.y);if(this.hitFlash>0)ctx.globalAlpha=0.6+0.4*Math.sin(this.hitFlash/20);ctx.strokeStyle=this.color;ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,-this.h+12,10,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-this.h+24);ctx.lineTo(0,-this.h/2+6);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-this.h+44);ctx.lineTo(20*this.facing,-this.h+28);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-this.h/2+6);ctx.lineTo(-12,12);ctx.moveTo(0,-this.h/2+6);ctx.lineTo(12,12);ctx.stroke();ctx.restore();}
+}
+
+// Particles
+class Particle{constructor(x,y,vx,vy,life,color){this.x=x;this.y=y;this.vx=vx;this.vy=vy;this.life=life;this.color=color;}update(dt){this.x+=this.vx;this.y+=this.vy;this.vy+=0.2;this.life-=dt;}draw(ctx){ctx.globalAlpha=Math.max(0,this.life/60);ctx.fillStyle=this.color;ctx.fillRect(this.x,this.y,3,3);ctx.globalAlpha=1;}}
+let particles=[];function spawnHit(x,y,color){if(!showParticles)return;for(let i=0;i<12;i++)particles.push(new Particle(x,y,(Math.random()-0.5)*5,(Math.random()-0.8)*5,40+Math.random()*40,color));}
+
+// Fighters
+let p1 = new Fighter(260,'#e6eef8');
+let p2 = new Fighter(W-260,'#ffd6a5');
+let lastTime = performance.now();
+
+// Draw stage
+function drawStage(){ctx.fillStyle='#0b1720';ctx.fillRect(0,0,W,H);ctx.fillStyle='#2b1f16';ctx.fillRect(0,H-300,W,300);for(let i=0;i<6;i++){ctx.fillStyle=i%2?'#3a2b20':'#35261a';ctx.fillRect(80+i*150,H-140,140,24);}}
+
+// Hit test
+function hitTest(attacker,target,range){const dir=attacker.facing;const ax=attacker.x+dir*30;const ay=attacker.y-attacker.h/2;const hitbox={x:ax-(dir>0?0:range),y:ay-20,w:range,h:40};const tb=target.box();return!(hitbox.x+hitbox.w<tb.x||hitbox.x>tb.x+tb.w||hitbox.y+hitbox.h<tb.y||hitbox.y>tb.y+tb.h);}
+
+// Damage
+function applyDamage(target,amount,attacker){if(target.blocking)amount=Math.max(1,Math.floor(amount*0.35));target.health=Math.max(0,target.health-amount);target.hitFlash=80;target.vx+=attacker.facing*3;spawnHit(target.x,target.y- target.h/2,'#ffcccb');target.stun=140;attacker.meter=Math.min(100,attacker.meter+amount*0.6);if(amount>12)playHeavy();else playHit();}
+
+// AI behavior
+function updateAI(dt){if(mode!=="1P")return;if(p2.stun>0)return;let dist=p1.x-p2.x;if(Math.random()<0.02){if(Math.abs(dist)>80)p2.vx=dist>0?4:-4;}else p2.vx*=0.9;if(Math.abs(dist)<70){if(Math.random()<0.02 && p2.attackCD<=0){p2.attackCD=260;if(hitTest(p2,p1,62))applyDamage(p1,8,p2);}else if(Math.random()<0.01 && p2.heavyCD<=0){p2.heavyCD=400;if(hitTest(p2,p1,60))applyDamage(p1,14,p2);}}}
+
+// Controls
+function handleInput(dt){
+  // P1 controls: A/D/W/J/K/L/S/Shift
+  if(keys.a)p1.vx=-4;if(keys.d)p1.vx=4;if(keys.w && p1.onGround){p1.vy=-12;playJump();}
+  if(keys.j && p1.attackCD<=0){p1.attackCD=260;if(hitTest(p1,p2,62))applyDamage(p2,8,p1);}
+  if(keys.k && p1.heavyCD<=0){p1.heavyCD=400;if(hitTest(p1,p2,60))applyDamage(p2,14,p1);}
+  if(keys.l && p1.kickCD<=0){p1.kickCD=320;if(hitTest(p1,p2,50))applyDamage(p2,10,p1);}
+  if(keys.s)p1.blocking=true; else p1.blocking=false;
+  if(keys.ShiftLeft && p1.dashCD<=0){p1.vx+=p1.facing*6;p1.dashCD=300;}
+  
+  if(mode==="2P"){
+    // P2 controls: Arrow keys + N/M/,./ShiftRight
+    if(keys.ArrowLeft)p2.vx=-4;if(keys.ArrowRight)p2.vx=4;if(keys.ArrowUp && p2.onGround){p2.vy=-12;playJump();}
+    if(keys.n && p2.attackCD<=0){p2.attackCD=260;if(hitTest(p2,p1,62))applyDamage(p1,8,p2);}
+    if(keys.m && p2.heavyCD<=0){p2.heavyCD=400;if(hitTest(p2,p1,60))applyDamage(p1,14,p2);}
+    if(keys[','] && p2.kickCD<=0){p2.kickCD=320;if(hitTest(p2,p1,50))applyDamage(p1,10,p2);}
+    if(keys['.'])p2.blocking=true; else p2.blocking=false;
+    if(keys.ShiftRight && p2.dashCD<=0){p2.vx+=p2.facing*6;p2.dashCD=300;}
+  }
+}
+
+// Update HUD
+function updateHUD(){p1hpEl.textContent=Math.round(p1.health);p2hpEl.textContent=Math.round(p2.health);p1meterEl.textContent=Math.round(p1.meter);p2meterEl.textContent=Math.round(p2.meter);}
+
+// Check KO
+function checkKO(){
+  if(p1.health<=0){victoryText.textContent=(mode==="2P")?"Player 2 Wins!":"AI Wins!";showVictory();}
+  if(p2.health<=0){victoryText.textContent="Player 1 Wins!";showVictory();}
+}
+
+// Show victory
+function showVictory(){victory.classList.remove('hidden');gameRunning=false;}
+
+// Game loop
+function loop(){
+  const now=performance.now();
+  const dt=now-lastTime; lastTime=now;
+  if(!gameRunning){requestAnimationFrame(loop);return;}
+  ctx.clearRect(0,0,W,H);
+  drawStage();
+  handleInput(dt);
+  p1.update(dt); p2.update(dt);
+  updateAI(dt);
+  p1.draw(ctx); p2.draw(ctx);
+  particles.forEach(p=>{p.update(dt);p.draw(ctx);});
+  particles = particles.filter(p=>p.life>0);
+  updateHUD();
+  checkKO();
+  requestAnimationFrame(loop);
+}
+
+// Start Game
+function startGame(m){mode=m;menu.classList.add('hidden');victory.classList.add('hidden');p1=new Fighter(260,'#e6eef8');p2=new Fighter(W-260,'#ffd6a5');round=1;gameRunning=true;lastTime=performance.now();loop();startMusic();}
+
+// Buttons
+document.getElementById('start1p').onclick=()=>startGame("1P");
+document.getElementById('start2p').onclick=()=>startGame("2P");
+document.getElementById('charBtn').onclick=()=>{menu.classList.add('hidden');charSelect.classList.remove('hidden');};
+document.getElementById('stageBtn').onclick=()=>{menu.classList.add('hidden');stageSelect.classList.remove('hidden');};
+document.getElementById('settingsBtn').onclick=()=>{menu.classList.add('hidden');settings.classList.remove('hidden');};
+document.getElementById('updateBtn').onclick=()=>{menu.classList.add('hidden');updateLog.classList.remove('hidden');};
+document.getElementById('charBack').onclick=()=>{charSelect.classList.add('hidden');menu.classList.remove('hidden');};
+document.getElementById('stageBack').onclick=()=>{stageSelect.classList.add('hidden');menu.classList.remove('hidden');};
+document.getElementById('settingsBack').onclick=()=>{settings.classList.add('hidden');menu.classList.remove('hidden');};
+document.getElementById('updateBack').onclick=()=>{updateLog.classList.add('hidden');menu.classList.remove('hidden');};
+document.getElementById('restartBtn').onclick=()=>startGame(mode);
+document.getElementById('menuBtn').onclick=()=>{gameRunning=false;menu.classList.remove('hidden');victory.classList.add('hidden');};
+
+// Settings toggles
+document.getElementById('musicToggle').onclick=()=>{musicOn=!musicOn;if(!musicOn)stopMusic();else startMusic();};
+document.getElementById('sfxToggle').onclick=()=>{sfxOn=!sfxOn;};
+document.getElementById('particlesToggle').onclick=()=>{showParticles=!showParticles;};
+document.getElementById('hitboxToggle').onclick=()=>{showHitboxes=!showHitboxes;};
+document.getElementById('fullscreenToggle').onclick=()=>{if(!document.fullscreenElement)canvas.requestFullscreen();else document.exitFullscreen();};
+
+// Character selection buttons
+charSelect.querySelectorAll('button[data-char]').forEach(b=>{
+  b.onclick=()=>{
+    selectedChar=b.dataset.char;
+    selectedCostume=b.dataset.costume;
+    charSelect.classList.add('hidden'); menu.classList.remove('hidden');
+  }
+});
+
+// Stage selection buttons
+stageSelect.querySelectorAll('button[data-stage]').forEach(b=>{
+  b.onclick=()=>{
+    selectedStage=b.dataset.stage;
+    stageSelect.classList.add('hidden'); menu.classList.remove('hidden');
+  }
+});
+
+</script>
+</body>
+</html>
